@@ -24,28 +24,66 @@ It significantly outperforms traditional conformal risk control (CRC) approach b
 
 ## 🚀 Quick Start
 
-### Basic Usage
+### Basic Usage (Example: Running CRA for a single alpha)
 ```python
-from src.experiments.aa_cra import run_aa_cra_experiment
-from src.utils.data_utils import load_medical_data
+import numpy as np
+import os
+from src.methods.cra_method import run_cra_experiment
 
-# Load your data
-phat, labels, images = load_medical_data("path/to/dataset")
+# Define your data folder (e.g., where phat_sorted.npy, phat_calibrated.npy, label_sorted.npy are located)
+data_folder = "data/POLYPS" 
 
-# Run AA-CRA experiment
-results = run_aa_cra_experiment(
-    phat=phat, 
+# Load your data (assuming these files exist in data_folder)
+# phat_raw: raw predicted probabilities (flattened, sorted)
+# phat_calibrated: probability-calibrated predicted probabilities (flattened, sorted)
+# labels: ground truth masks (flattened, sorted corresponding to phat)
+phat_raw = np.load(os.path.join(data_folder, "phat_sorted.npy"))
+phat_calibrated = np.load(os.path.join(data_folder, "phat_calibrated.npy"))
+labels = np.load(os.path.join(data_folder, "label_sorted.npy"))
+
+# Filter out samples with no positive labels (important for coverage metrics)
+has_positive_labels = labels.sum(axis=1) > 0
+phat_raw = phat_raw[has_positive_labels]
+phat_calibrated = phat_calibrated[has_positive_labels]
+labels = labels[has_positive_labels]
+
+n_total_samples = phat_raw.shape
+
+# Define data split for this example (e.g., 70% calibration, 30% test)
+# For CRA, all data not used for test is used for calibration.
+test_ratio = 0.3
+n_test = int(n_total_samples * test_ratio)
+n_calib = n_total_samples - n_test
+
+perm = np.random.permutation(n_total_samples)
+calib_indices = perm[:n_calib]
+test_indices = perm[n_calib:]
+
+# Run CRA experiment
+alpha_level = 0.1 # 90% target coverage
+n_strat_groups = 5 # Number of stratification groups for CRA
+
+results_cra = run_cra_experiment(
+    phat_calibrated=phat_calibrated, 
     labels=labels, 
-    images=images,
-    alpha=0.1  # 90% target coverage
+    calib_indices=calib_indices,
+    test_indices=test_indices,
+    alpha=alpha_level,
+    n_groups=n_strat_groups
 )
 
-print(f"Average Coverage: {np.mean(results['coverage']):.3f}")
-print(f"Average Gap: {np.mean(results['gap']):.3f}")
+if results_cra:
+    print(f"CRA Results for alpha={alpha_level}:")
+    print(f"  Average Coverage: {np.mean(results_cra['coverage']):.3f}")
+    print(f"  Average Gap: {np.mean(results_cra['gap']):.3f}")
+    print(f"  Average Precision: {np.mean(results_cra['precision']):.3f}")
+    print(f"  Average Size: {np.mean(results_cra['size']):.3f}")
+else:
+    print(f"CRA experiment failed for alpha={alpha_level}.")
 ```
 ### Complete Experimental Comparison
 ```bash
-python scripts/run_experiments.py --input_folder data/POLYPS --alpha_values 0.05 0.1 0.2
+python scripts/run_all_experiments.py --input_folder data/POLYPS --alpha_values 0.05 0.1 0.2 --n_repeats 50 --train_ratio 0.3 --calib_ratio 0.2
 ```
 
 ## 📊 Methods Comparison
@@ -82,6 +120,7 @@ python scripts/run_experiments.py --input_folder data/POLYPS --alpha_values 0.05
 - Pandas 1.3+
 - tqdm 4.62+
 - scikit-learn 1.0+
+- torchvision (for ResNet weights)
 
 ## 📄 License
 
